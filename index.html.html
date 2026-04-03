@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HSK4 단어 마스터 퀴즈</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --success-color: #2ecc71;
+            --error-color: #e74c3c;
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        #game-container {
+            width: 90%;
+            max-width: 500px;
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        .hidden { display: none !important; }
+
+        /* UI Elements */
+        .header { display: flex; justify-content: space-between; margin-bottom: 20px; font-weight: bold; }
+        .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; margin-bottom: 20px; }
+        #progress-fill { height: 100%; background: var(--primary-color); width: 0%; border-radius: 4px; transition: 0.3s; }
+
+        /* Quiz Styles */
+        .question-box { text-align: center; margin-bottom: 30px; }
+        .word-hanzi { font-size: 3.5rem; color: #2c3e50; margin-bottom: 10px; }
+        .options-container { display: grid; gap: 10px; }
+        .option-btn {
+            padding: 15px;
+            border: 2px solid #eee;
+            border-radius: 12px;
+            background: white;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: 0.2s;
+            text-align: left;
+        }
+        .option-btn:hover { background: #f0f7ff; border-color: var(--primary-color); }
+        .option-btn.correct { background: var(--success-color) !important; color: white; border-color: var(--success-color); }
+        .option-btn.wrong { background: var(--error-color) !important; color: white; border-color: var(--error-color); }
+
+        /* Result & Ranking */
+        .result-screen, .ranking-screen { text-align: center; }
+        .score-text { font-size: 2rem; color: var(--primary-color); margin: 20px 0; }
+        input { padding: 12px; width: 80%; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; font-size: 1rem; }
+        button.main-btn {
+            background: var(--primary-color); color: white; border: none; padding: 12px 25px;
+            border-radius: 8px; cursor: pointer; font-size: 1rem; width: 80%; margin-top: 10px;
+        }
+        .ranking-list { list-style: none; padding: 0; margin-top: 20px; text-align: left; }
+        .ranking-item {
+            display: flex; justify-content: space-between; padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .ranking-item:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- 메인 화면 -->
+        <div id="start-screen">
+            <h1 style="text-align: center;">HSK 4급 퀴즈</h1>
+            <p style="text-align: center; color: #666;">한자, 성조, 뜻을 마스터하세요!</p>
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="main-btn" onclick="startGame()">게임 시작</button>
+            </div>
+        </div>
+
+        <!-- 퀴즈 화면 -->
+        <div id="quiz-screen" class="hidden">
+            <div class="header">
+                <span id="q-count">1/10</span>
+                <span id="current-score">점수: 0</span>
+            </div>
+            <div class="progress-bar"><div id="progress-fill"></div></div>
+            <div class="question-box">
+                <div class="word-hanzi" id="display-hanzi">爱情</div>
+                <div id="hint-area" style="color: #999; min-height: 20px;"></div>
+            </div>
+            <div class="options-container" id="options">
+                <!-- 버튼이 여기에 생성됨 -->
+            </div>
+        </div>
+
+        <!-- 결과 화면 -->
+        <div id="result-screen" class="hidden">
+            <h2>퀴즈 완료!</h2>
+            <div class="score-text" id="final-score">0점</div>
+            <p>닉네임을 입력하여 랭킹에 등록하세요.</p>
+            <input type="text" id="nickname" placeholder="닉네임 (최대 8자)" maxlength="8">
+            <button class="main-btn" id="submit-score">점수 저장하기</button>
+        </div>
+
+        <!-- 랭킹 화면 -->
+        <div id="ranking-screen" class="hidden">
+            <h2>실시간 TOP 5 랭킹</h2>
+            <div class="ranking-list" id="ranking-list">
+                <!-- 랭킹 데이터 삽입 -->
+            </div>
+            <button class="main-btn" onclick="location.reload()">다시 시작</button>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // Firebase 설정 (제공해주신 설정 사용)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDC99WwhaBsX7ndHYNAQubXn9PmOeQ5SL4",
+            authDomain: "myhsk4game.firebaseapp.com",
+            projectId: "myhsk4game",
+            storageBucket: "myhsk4game.firebasestorage.app",
+            messagingSenderId: "224859904858",
+            appId: "1:224859904858:web:430dda1fa8b8f713553163",
+            measurementId: "G-8C4XEPGYVF"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // HSK 4급 샘플 데이터 (실제 게임 시 10개 랜덤 추출)
+        const hsk4Words = [
+            { h: "爱情", p: "àiqíng", m: "사랑" }, { h: "安排", p: "ānpái", m: "배치하다, 계획하다" },
+            { h: "安全", p: "ānquán", m: "안전하다" }, { h: "按时", p: "ànshí", m: "제때에" },
+            { h: "百分之", p: "bǎifēnzhī", m: "퍼센트(%)" }, { h: "棒", p: "bàng", m: "훌륭하다, 최고다" },
+            { h: "保证", p: "bǎozhèng", m: "보장하다, 약속하다" }, { h: "报名", p: "bàomíng", m: "등록하다, 신청하다" },
+            { h: "抱歉", p: "bàoqiàn", m: "미안해하다" }, { h: "倍", p: "bèi", m: "배, 곱절" },
+            { h: "本来", p: "běnlái", m: "본래, 원래" }, { h: "毕业", p: "bìyè", m: "졸업하다" },
+            { h: "遍", p: "biàn", m: "번, 회(횟수)" }, { h: "标准", p: "biāozhǔn", m: "표준, 기준" },
+            { h: "表格", p: "biǎogé", m: "표, 서식" }, { h: "表演", p: "biǎoyǎn", m: "연기하다, 공연하다" },
+            { h: "表扬", p: "biǎoyáng", m: "칭찬하다" }, { h: "饼干", p: "bǐnggān", m: "과자, 쿠키" },
+            { h: "并且", p: "bìngqiě", m: "게다가, 그리고" }, { h: "博士", p: "bóshì", m: "박사" }
+        ];
+
+        let currentQuiz = [];
+        let currentIndex = 0;
+        let score = 0;
+        let isAnswered = false;
+
+        // 게임 시작
+        window.startGame = () => {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('quiz-screen').classList.remove('hidden');
+            
+            // 셔플 및 10문제 선택
+            currentQuiz = [...hsk4Words].sort(() => 0.5 - Math.random()).slice(0, 10);
+            currentIndex = 0;
+            score = 0;
+            showQuestion();
+        };
+
+        // 문제 표시
+        function showQuestion() {
+            isAnswered = false;
+            const word = currentQuiz[currentIndex];
+            document.getElementById('q-count').innerText = `${currentIndex + 1}/10`;
+            document.getElementById('current-score').innerText = `점수: ${score}`;
+            document.getElementById('progress-fill').style.width = `${(currentIndex / 10) * 100}%`;
+            document.getElementById('display-hanzi').innerText = word.h;
+            document.getElementById('hint-area').innerText = "";
+
+            // 보기 생성 (정답 1 + 오답 3)
+            let options = [{ ...word, correct: true }];
+            let others = hsk4Words.filter(w => w.h !== word.h);
+            let shuffledOthers = others.sort(() => 0.5 - Math.random()).slice(0, 3);
+            options = [...options, ...shuffledOthers.map(o => ({ ...o, correct: false }))];
+            options.sort(() => 0.5 - Math.random());
+
+            const optionsContainer = document.getElementById('options');
+            optionsContainer.innerHTML = '';
+            options.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                // 학습을 위해 [성조 + 뜻]을 한꺼번에 보여줌
+                btn.innerText = `${opt.p} | ${opt.m}`;
+                btn.onclick = () => handleAnswer(btn, opt.correct);
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        // 정답 확인
+        function handleAnswer(btn, isCorrect) {
+            if (isAnswered) return;
+            isAnswered = true;
+
+            const word = currentQuiz[currentIndex];
+            // 정답일 때 성조 힌트 강조 표시 가능
+            document.getElementById('hint-area').innerText = `${word.h} [${word.p}] : ${word.m}`;
+
+            if (isCorrect) {
+                score += 10;
+                btn.classList.add('correct');
+            } else {
+                btn.classList.add('wrong');
+                // 정답 버튼도 같이 보여줌
+                Array.from(document.querySelectorAll('.option-btn')).forEach(b => {
+                    if (b.innerText.includes(word.m)) b.classList.add('correct');
+                });
+            }
+
+            setTimeout(() => {
+                currentIndex++;
+                if (currentIndex < 10) {
+                    showQuestion();
+                } else {
+                    showResult();
+                }
+            }, 1800);
+        }
+
+        // 결과 화면
+        function showResult() {
+            document.getElementById('quiz-screen').classList.add('hidden');
+            document.getElementById('result-screen').classList.remove('hidden');
+            document.getElementById('final-score').innerText = `${score}점`;
+        }
+
+        // 점수 저장
+        document.getElementById('submit-score').onclick = async () => {
+            const nickname = document.getElementById('nickname').value.trim();
+            if (!nickname) return alert("닉네임을 입력해주세요!");
+
+            try {
+                await addDoc(collection(db, "scores"), {
+                    nickname: nickname,
+                    score: score,
+                    timestamp: serverTimestamp()
+                });
+                loadRanking();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                alert("저장 중 오류가 발생했습니다.");
+            }
+        };
+
+        // 랭킹 불러오기
+        async function loadRanking() {
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('ranking-screen').classList.remove('hidden');
+            const rankingList = document.getElementById('ranking-list');
+            rankingList.innerHTML = "불러오는 중...";
+
+            const q = query(collection(db, "scores"), orderBy("score", "desc"), limit(5));
+            const querySnapshot = await getDocs(q);
+            
+            rankingList.innerHTML = "";
+            let rank = 1;
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const div = document.createElement('div');
+                div.className = 'ranking-item';
+                div.innerHTML = `<span>${rank}. ${data.nickname}</span> <strong>${data.score}점</strong>`;
+                rankingList.appendChild(div);
+                rank++;
+            });
+        }
+    </script>
+</body>
+</html>
